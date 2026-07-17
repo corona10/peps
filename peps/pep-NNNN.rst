@@ -2,7 +2,6 @@ PEP: NNNN
 Title: Adding Frozen Syntax to Make Immutable Types Optimizable
 Author: Donghee Na <donghee.na@python.org>,
         Nikita Sobolev <mail@sobolevn.me>,
-        Victor Stinner <vstinner@python.org>
 Status: Draft
 Type: Standards Track
 Created: 16-Jul-2026
@@ -36,7 +35,7 @@ immutable ones.  Today an immutable set must be written as
   rebound and the call may have arbitrary side effects.
 
 CPython already hints at the opportunity: the peephole optimizer rewrites
-a constant set display into a frozenset — but only as the right operand
+a constant set display into a frozenset, but only as the right operand
 of ``in``.  Assign the same display to a variable and the optimization is
 gone.  The root cause is that the compiler can never prove immutability
 of a ``set`` or ``dict`` display, so it must rebuild it on every
@@ -53,6 +52,12 @@ Syntax, not a builtin call
 Only syntax gives the compiler a semantic guarantee.  A call to
 ``frozenset(...)`` can be shadowed; a frozen display cannot.  Every
 optimization described below follows from this single property.
+
+Static analysis benefits in the same way.  Today, tools must assume
+that ``frozenset(...)`` refers to the builtin.  A frozen display turns
+that assumption into a syntactic guarantee, so analyzers can treat the
+result as immutable with full confidence.  This holds even for purely
+syntactic tools that perform no name resolution.
 
 Why ``f{...}``
 --------------
@@ -77,9 +82,9 @@ Two new alternatives are added to ``atom``, mirroring ``set`` and
    fset:  FBRACE star_named_expressions '}'
    fdict: FBRACE [double_starred_kvpairs] '}'
 
-* ``f{1, 2, 3}`` — frozenset display.
-* ``f{'a': 1, 'b': 2}`` — frozendict display.
-* ``f{}`` — an empty frozendict, mirroring ``{}``.
+* ``f{1, 2, 3}`` is a frozenset display.
+* ``f{'a': 1, 'b': 2}`` is a frozendict display.
+* ``f{}`` is an empty frozendict, mirroring ``{}``.
 * Star-unpacking is supported: ``f{*xs}``, ``f{**d}``.
 * Comprehension forms are not included in this PEP.
 
@@ -89,8 +94,8 @@ AST
 Two new expression nodes are added: ``FrozenSet(elts)`` and
 ``FrozenDict(keys, values)``, structurally identical to ``Set`` and
 ``Dict``.  Distinct nodes (rather than a flag) let every downstream
-consumer — the symbol table, the AST optimizer, the code generator, and
-third-party tools — dispatch on immutability directly.
+consumer (e.g. the symbol table, the AST optimizer, the code generator,
+and third-party tools) dispatch on immutability directly.
 
 Semantics
 ---------
@@ -105,9 +110,9 @@ Bytecode
 
 Two new instructions are added:
 
-* ``BUILD_FROZENSET (count)`` — like ``BUILD_SET``, but the freshly
+* ``BUILD_FROZENSET (count)`` works like ``BUILD_SET``, but the freshly
   created, uniquely referenced set is frozen in place with no copy.
-* ``BUILD_FROZENMAP (count)`` — like ``BUILD_MAP``, but creates a
+* ``BUILD_FROZENMAP (count)`` works like ``BUILD_MAP``, but creates a
   ``frozendict``.
 
 Displays that use star-unpacking or exceed the stack-use guideline fall
@@ -119,7 +124,7 @@ The optimization pipeline
 =========================
 
 The central claim of this PEP is that frozen displays are not merely
-convenient syntax — they give every stage of the compiler a guarantee it
+convenient syntax: they give every stage of the compiler a guarantee it
 can act on.  The reference implementation already exercises the full
 pipeline:
 
@@ -133,9 +138,9 @@ pipeline:
    ``f{1, 2}[0]`` at compile time).
 
 3. **CFG constant folding.**  When all elements are constants, the
-   peephole optimizer folds the entire display — frozenset and
-   frozendict alike — into one ``LOAD_CONST``.  Crucially, and unlike
-   the existing list/set folds, this is *unconditionally* valid —
+   peephole optimizer folds the entire display, frozenset and
+   frozendict alike, into one ``LOAD_CONST``.  Crucially, and unlike
+   the existing list/set folds, this is *unconditionally* valid:
    immutability comes from the language semantics, not from analysing
    how the value is used.  The folded constant lands in ``co_consts``,
    is serialized into the ``.pyc`` by marshal, and is shared across all
@@ -170,8 +175,8 @@ node types, two new opcodes, and a bytecode magic number bump.
 How to Teach This
 =================
 
-"Prefix a set or dict display with ``f`` to make it frozen" — the same
-mental model as f-strings.  Style guidance: prefer ``f{...}`` over
+"Prefix a set or dict display with ``f`` to make it frozen".  The
+mental model is the same as for f-strings.  Style guidance: prefer ``f{...}`` over
 ``frozenset({...})`` for literal values; constant frozen displays are
 free after the first execution.
 
