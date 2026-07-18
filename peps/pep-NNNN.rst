@@ -42,6 +42,12 @@ of a ``set`` or ``dict`` display, so it must rebuild it on every
 execution.  A display whose *semantics* guarantee immutability removes
 that barrier once and for all.
 
+Immutable container displays have been requested and discussed by the
+community several times, most recently in the `frozenset and frozendict
+comprehensions
+<https://discuss.python.org/t/frozenset-and-frozendict-comprehensions/101584>`__
+thread on Discourse.
+
 
 Rationale
 =========
@@ -63,8 +69,10 @@ Why ``f{...}``
 --------------
 
 The ``f`` prefix reads as *frozen*, mirroring the familiar f-string
-prefix convention.  ``f{`` is a syntax error in all current Python
-versions, so the syntax is fully backward compatible.  The tokenizer
+prefix convention.  Sharing the letter with f-strings is not a problem:
+strings are immutable too, so either way an ``f`` prefixed expression
+evaluates to an immutable value.  ``f{`` is a syntax error in all
+current Python versions, so the syntax is fully backward compatible.  The tokenizer
 emits a single ``FBRACE`` token for ``f{``, so ``f {1}`` (with a space)
 remains an error and there is no ambiguity with the name ``f`` or with
 f-strings.
@@ -85,7 +93,9 @@ Two new alternatives are added to ``atom``, mirroring ``set`` and
 * ``f{1, 2, 3}`` is a frozenset display.
 * ``f{'a': 1, 'b': 2}`` is a frozendict display.
 * ``f{}`` is an empty frozendict, mirroring ``{}``.
-* Star-unpacking is supported: ``f{*xs}``, ``f{**d}``.
+* Star unpacking follows the existing displays: ``f{*xs}`` is a
+  frozenset display (like ``{*xs}``) and ``f{**d}`` is a frozendict
+  display (like ``{**d}``).
 * Comprehension forms are not included in this PEP.
 
 AST
@@ -115,6 +125,9 @@ Two new instructions are added:
 * ``BUILD_FROZENMAP (count)`` works like ``BUILD_MAP``, but creates a
   ``frozendict``.
 
+``count`` is an ordinary oparg with the same format and meaning as in
+the existing ``BUILD_SET`` and ``BUILD_MAP`` instructions.
+
 Displays that use star-unpacking or exceed the stack-use guideline fall
 back to building the mutable container and freezing it in place; the
 result is indistinguishable.
@@ -137,15 +150,14 @@ pipeline:
    (used by the compiler's type inference, e.g. to reject
    ``f{1, 2}[0]`` at compile time).
 
-3. **CFG constant folding.**  When all elements are constants, the
-   peephole optimizer folds the entire display, frozenset and
-   frozendict alike, into one ``LOAD_CONST``.  Crucially, and unlike
-   the existing list/set folds, this is *unconditionally* valid:
-   immutability comes from the language semantics, not from analysing
-   how the value is used.  The folded constant lands in ``co_consts``,
-   is serialized into the ``.pyc`` by marshal, and is shared across all
-   executions: a constant frozen display has zero per-execution
-   construction cost.
+3. **Control flow graph (CFG) constant folding.**  A display whose
+   keys and values are all constants is folded into a single
+   ``LOAD_CONST``, serialized into the ``.pyc`` by marshal, and shared
+   across all executions: zero per-execution construction cost.  Unlike
+   the existing list/set folds, this is *unconditionally* valid, since
+   immutability comes from the language semantics, not from how the
+   value is used.  A display with a non-constant element, e.g.
+   ``f{'key': ['list']}``, is still built at runtime.
 
 4. **Constant deduplication.**  Frozen constants participate in
    ``co_consts`` deduplication: equal frozen displays within a code
@@ -188,6 +200,31 @@ A complete implementation, including the parser, AST, code generator,
 and CFG constant folding, is available in the `fset_fdict branch
 <https://github.com/corona10/cpython/tree/fset_fdict>`__ of the author's
 CPython fork.
+
+
+Rejected Ideas
+==============
+
+Alternative spellings
+---------------------
+
+Many spellings were considered; ``f`` was chosen simply because it is
+the prefix that best evokes *frozen*:
+
+* Single letter prefixes: ``i{'key': 1}`` (immutable), ``z{'key': 1}``.
+* Multi letter prefixes: ``fr{'key': 1}``, ``fz{'key': 1}``,
+  ``frz{'key': 1}``.
+* Symbol prefixes: ``${'key': 1}``, ``+{'key': 1}``.
+* Bracket variants: ``{{'key': 1}}``, ``|{'key': 1}|``, ``{|'key': 1|}``.
+* Word prefixes: ``frozen{'key': 1}``, ``fdict{'key': 1}``,
+  ``frozendict {'key': 1}``.
+
+Freezing methods
+----------------
+
+Methods such as ``{'key': 1}.freeze()`` or
+``{'key': 1}.take_frozendict()`` are not real alternatives: they can be
+added independently of this PEP.
 
 
 Open Issues
